@@ -1,6 +1,7 @@
 #include "Desktronic.h"
-
+#include "esphome.h"
 #include "esphome/core/log.h"
+#include "esphome/components/number/number.h"
 
 namespace esphome
 {
@@ -13,14 +14,18 @@ static const uint8_t REMOTE_UART_MESSAGE_LENGTH = 5U;
 static const uint8_t REMOTE_UART_MESSAGE_START = 0xa5;
 static const uint8_t* REMOTE_UART_MESSAGE_MOVE_UP = new uint8_t[5]{0xa5, 0x00, 0x20, 0xdf, 0xff};
 static const uint8_t* REMOTE_UART_MESSAGE_MOVE_DOWN = new uint8_t[5]{0xa5, 0x00, 0x40, 0xbf, 0xff};
-static const float REMOTE_UART_STOPPING_DISTANCE = 0.6;
+
+static const uint8_t* REMOTE_UART_MESSAGE_MOVE_MEMORY_1 = new uint8_t[5]{0xa5, 0x00, 0x02, 0xFD, 0xff};
+static const uint8_t* REMOTE_UART_MESSAGE_MOVE_MEMORY_2 = new uint8_t[5]{0xa5, 0x00, 0x04, 0xFB, 0xff};
+
+static const float REMOTE_UART_STOPPING_DISTANCE = 1.0;
 static const int8_t REMOTE_UART_SEND_MESSAGE_COUNT = 3;
 
 static const uint8_t DESK_UART_MESSAGE_LENGTH = 6U;
 static const uint8_t DESK_UART_MESSAGE_START = 0x5a;
 
-static const float MIN_HEIGHT = 72.0;
-static const float MAX_HEIGHT = 119.0;
+static const float MIN_HEIGHT = 65.5;
+static const float MAX_HEIGHT = 129.5;
 
 static const char* desktronic_operation_to_string(const DesktronicOperation operation)
 {
@@ -32,6 +37,14 @@ static const char* desktronic_operation_to_string(const DesktronicOperation oper
         return "RAISING";
     case DESKTRONIC_OPERATION_LOWERING:
         return "LOWERING";
+    case DESKTRONIC_OPERATION_DOWN:
+        return "DOWN";
+    case DESKTRONIC_OPERATION_UP:
+        return "UP";
+    case DESKTRONIC_OPERATION_MEMORY_1:
+        return "MEMORY";
+    case DESKTRONIC_OPERATION_MEMORY_2:
+        return "MEMORY";
     default:
         return "UNKNOWN";
     }
@@ -62,7 +75,7 @@ static int segment_to_number(const uint8_t segment)
     case SEGMENT_9:
         return 9;
     default:
-        ESP_LOGE(TAG, "unknown digit: %02f", segment & 0x7f);
+        ESP_LOGW(TAG, "unknown digit: %02f", segment & 0x7f);
     }
 
     return -1;
@@ -86,7 +99,30 @@ void Desktronic::loop()
         return;
     }
 
-    move_to_target_height();
+    else if (current_operation == DesktronicOperation::DESKTRONIC_OPERATION_UP)
+    {
+        move_up();
+    }
+
+    else if (current_operation == DesktronicOperation::DESKTRONIC_OPERATION_DOWN)
+    {
+        move_down();
+    }
+
+    else if (current_operation == DesktronicOperation::DESKTRONIC_OPERATION_MEMORY_1)
+    {
+        move_to_memory_1();
+    }
+    else if (current_operation == DesktronicOperation::DESKTRONIC_OPERATION_MEMORY_2)
+    {
+        move_to_memory_2();
+    }
+
+    else
+    {
+        move_to_target_height();
+    }
+
 }
 
 void Desktronic::dump_config()
@@ -105,12 +141,36 @@ void Desktronic::move_to(const float height_in_cm)
 {
     if (height_in_cm < MIN_HEIGHT || height_in_cm > MAX_HEIGHT)
     {
-        ESP_LOGE(TAG, "Moving: Height must be between 720 and 1190 mm");
+        ESP_LOGE(TAG, "Moving: Height must be between %.0fs and %.0f cm", MIN_HEIGHT, MAX_HEIGHT);
         return;
     }
 
     target_height_ = height_in_cm;
     current_operation = must_move_up(height_in_cm) ? DESKTRONIC_OPERATION_RAISING : DESKTRONIC_OPERATION_LOWERING;
+}
+
+void Desktronic::move_to_from(const float height_in_cm, const float current_height)
+{
+    if (height_in_cm < MIN_HEIGHT || height_in_cm > MAX_HEIGHT)
+    {
+        ESP_LOGE(TAG, "Moving: Height must be between %.0fs and %.0f cm", MIN_HEIGHT, MAX_HEIGHT);
+        return;
+    }
+
+    if (current_height < height_in_cm )
+    {
+        current_operation =  DESKTRONIC_OPERATION_UP;
+    }
+    else if (current_height < height_in_cm )
+    {
+        current_operation =  DESKTRONIC_OPERATION_DOWN;
+    }
+    else if (current_height == height_in_cm )
+    {
+        current_operation =  DESKTRONIC_OPERATION_IDLE;
+    }
+
+    target_height_ = height_in_cm;
 }
 
 void Desktronic::stop()
@@ -122,6 +182,71 @@ void Desktronic::stop()
 
     target_height_ = -1.0;
     current_operation = DESKTRONIC_OPERATION_IDLE;
+    ESP_LOGI(TAG, "Stopped");
+}
+
+void Desktronic::move_up()
+{
+    if (move_pin_)
+    {
+        move_pin_->digital_write(false);
+    }
+
+    ESP_LOGV(TAG, "Moving: Forced Up");
+    current_operation = DESKTRONIC_OPERATION_UP;
+
+    for (int i = 0; i < REMOTE_UART_SEND_MESSAGE_COUNT; i++)
+    {
+        remote_uart_->write_array(REMOTE_UART_MESSAGE_MOVE_UP, REMOTE_UART_MESSAGE_LENGTH);
+    }
+}
+
+void Desktronic::move_to_memory_1()
+{
+    if (move_pin_)
+    {
+        move_pin_->digital_write(false);
+    }
+
+    ESP_LOGD(TAG, "Moving: Memory 1");
+    current_operation = DESKTRONIC_OPERATION_MEMORY_1;
+
+    for (int i = 0; i < REMOTE_UART_SEND_MESSAGE_COUNT; i++)
+    {
+            remote_uart_->write_array(REMOTE_UART_MESSAGE_MOVE_MEMORY_1, REMOTE_UART_MESSAGE_LENGTH);
+    }
+}
+
+void Desktronic::move_to_memory_2()
+{
+    if (move_pin_)
+    {
+        move_pin_->digital_write(false);
+    }
+
+    ESP_LOGD(TAG, "Moving: Memory 2");
+    current_operation = DESKTRONIC_OPERATION_MEMORY_2;
+
+    for (int i = 0; i < REMOTE_UART_SEND_MESSAGE_COUNT; i++)
+    {
+            remote_uart_->write_array(REMOTE_UART_MESSAGE_MOVE_MEMORY_2, REMOTE_UART_MESSAGE_LENGTH);
+    }
+}
+
+void Desktronic::move_down()
+{
+    if (move_pin_)
+    {
+        move_pin_->digital_write(false);
+    }
+
+    ESP_LOGV(TAG, "Moving: Forced Down");
+    current_operation = DESKTRONIC_OPERATION_DOWN;
+
+    for (int i = 0; i < REMOTE_UART_SEND_MESSAGE_COUNT; i++)
+    {
+        remote_uart_->write_array(REMOTE_UART_MESSAGE_MOVE_DOWN, REMOTE_UART_MESSAGE_LENGTH);
+    }
 }
 
 void Desktronic::read_remote_uart()
@@ -166,7 +291,7 @@ void Desktronic::read_remote_uart()
         const uint8_t checksum = data[1] + data[2];
         if (checksum != data[3])
         {
-            ESP_LOGE(TAG, "remote checksum mismatch: %02x (calculated checksum) != %02x (actual checksum)", checksum, data[3]);
+            ESP_LOGD(TAG, "remote checksum mismatch: %02x (calculated checksum) != %02x (actual checksum)", checksum, data[3]);
             reset_remote_buffer();
 
             continue;
@@ -219,7 +344,7 @@ void Desktronic::read_desk_uart()
         const uint8_t checksum = data[0] + data[1] + data[2] + data[3];
         if (checksum != data[4])
         {
-            ESP_LOGE(TAG, "desk checksum mismatch: %02x (calculated checksum) != %02x (actual checksum)", checksum, data[4]);
+            ESP_LOGD(TAG, "desk checksum mismatch: %02x (calculated checksum) != %02x (actual checksum)", checksum, data[4]);
             reset_desk_buffer();
 
             continue;
@@ -229,7 +354,7 @@ void Desktronic::read_desk_uart()
         {
             if (data[3] != 0x01)
             {
-                ESP_LOGE(TAG, "unknown message type %02x must be 0x01", data[3]);
+                ESP_LOGD(TAG, "unknown message type %02x must be 0x01", data[3]);
                 break;
             }
 
@@ -252,11 +377,16 @@ void Desktronic::read_desk_uart()
             {
                 height /= 10.0;
             }
+            else{
 
-            current_height_ = height;
-            height_sensor_->publish_state(height);
+            }
+                current_height_ = height;
+                height_sensor_->publish_state(height);
+
         }
-
+        else {
+            ESP_LOGE(TAG, "Unable to get height sensor value");
+        }
         reset_desk_buffer();
     }
 }
@@ -318,7 +448,7 @@ void Desktronic::move_to_target_height()
 
     if (!isCurrentHeightValid())
     {
-        ESP_LOGE(TAG, "Moving: Height must be between 72.0 and 119.0 cm");
+        ESP_LOGE(TAG, "Moving: Height must be between %.0fs and %.0f cm", MIN_HEIGHT, MAX_HEIGHT);
         move_pin_->digital_write(false);
         current_operation = DesktronicOperation::DESKTRONIC_OPERATION_IDLE;
 
@@ -329,7 +459,7 @@ void Desktronic::move_to_target_height()
     switch (current_operation)
     {
     case DesktronicOperation::DESKTRONIC_OPERATION_RAISING:
-        ESP_LOGE(TAG, "Moving: Up");
+        ESP_LOGV(TAG, "Moving: Up");
         for (int i = 0; i < REMOTE_UART_SEND_MESSAGE_COUNT; i++)
         {
             remote_uart_->write_array(REMOTE_UART_MESSAGE_MOVE_UP, REMOTE_UART_MESSAGE_LENGTH);
@@ -337,7 +467,7 @@ void Desktronic::move_to_target_height()
 
         break;
     case DesktronicOperation::DESKTRONIC_OPERATION_LOWERING:
-        ESP_LOGE(TAG, "Moving: Down");
+        ESP_LOGV(TAG, "Moving: Down");
         for (int i = 0; i < REMOTE_UART_SEND_MESSAGE_COUNT; i++)
         {
             remote_uart_->write_array(REMOTE_UART_MESSAGE_MOVE_DOWN, REMOTE_UART_MESSAGE_LENGTH);
@@ -350,7 +480,7 @@ void Desktronic::move_to_target_height()
 
     if (isCurrentHeightInTargetBoundaries())
     {
-        ESP_LOGE(TAG, "Moving: Finished");
+        ESP_LOGI(TAG, "Moving: Finished");
         move_pin_->digital_write(false);
         current_operation = DesktronicOperation::DESKTRONIC_OPERATION_IDLE;
     }

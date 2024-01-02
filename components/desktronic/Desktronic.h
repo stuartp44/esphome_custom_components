@@ -4,6 +4,7 @@
 #include "esphome/components/sensor/sensor.h"
 #include "esphome/components/uart/uart.h"
 #include "esphome/components/binary_sensor/binary_sensor.h"
+#include "esphome/components/number/number.h"
 
 namespace esphome
 {
@@ -15,6 +16,10 @@ enum DesktronicOperation : uint8_t
     DESKTRONIC_OPERATION_IDLE = 0U,
     DESKTRONIC_OPERATION_RAISING,
     DESKTRONIC_OPERATION_LOWERING,
+    DESKTRONIC_OPERATION_UP,
+    DESKTRONIC_OPERATION_DOWN,
+    DESKTRONIC_OPERATION_MEMORY_1,
+    DESKTRONIC_OPERATION_MEMORY_2,
 };
 
 enum Segment : uint8_t
@@ -39,6 +44,7 @@ enum MovingIdentifier : uint8_t
     MOVING_IDENTIFIER_MEMORY_1 = 0x02,
     MOVING_IDENTIFIER_MEMORY_2 = 0x04,
     MOVING_IDENTIFIER_MEMORY_3 = 0x08,
+    MOVING_IDENTIFIER_MEMORY_4 = 0x10,
 };
 
 static const char* desktronic_operation_to_string(const DesktronicOperation operation);
@@ -62,8 +68,13 @@ public:
     void set_memory2_bsensor(binary_sensor::BinarySensor* sensor) { memory2_bsensor_ = sensor; }
     void set_memory3_bsensor(binary_sensor::BinarySensor* sensor) { memory3_bsensor_ = sensor; }
 
+    void move_to_from(const float height_in_cm, const float current_height);
     void move_to(const float height_in_cm);
     void stop();
+    void move_up();
+    void move_down();
+    void move_to_memory_1();
+    void move_to_memory_2();
 
 public:
     DesktronicOperation current_operation{DesktronicOperation::DESKTRONIC_OPERATION_IDLE};
@@ -77,8 +88,6 @@ private:
 
     bool must_move_up(const float height_in_cm) const;
     void move_to_target_height();
-    void move_up();
-    void move_down();
 
     bool isCurrentHeightValid() const;
     bool isCurrentHeightInTargetBoundaries() const;
