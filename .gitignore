@@ -16,3 +16,6 @@
 # VSCode
 .vscode
 esphome/*
+
+# Mac
+.DS_Store
