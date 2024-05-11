@@ -24,8 +24,8 @@ static const int8_t REMOTE_UART_SEND_MESSAGE_COUNT = 3;
 static const uint8_t DESK_UART_MESSAGE_LENGTH = 6U;
 static const uint8_t DESK_UART_MESSAGE_START = 0x5a;
 
-static const float MIN_HEIGHT = 65.5;
-static const float MAX_HEIGHT = 129.5;
+static const float MIN_HEIGHT = 70.5;
+static const float MAX_HEIGHT = 130.5;
 
 static const char* desktronic_operation_to_string(const DesktronicOperation operation)
 {
